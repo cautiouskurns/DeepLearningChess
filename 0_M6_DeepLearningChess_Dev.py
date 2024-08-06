@@ -1,4 +1,6 @@
 from enum import Enum, auto
+import random
+from IPython.display import clear_output
 
 class PieceType(Enum):
     PAWN = auto()
@@ -167,49 +169,58 @@ class ChessBoard:
             return True
         return False
 
-def play_game():
+class RandomAI:
+    def __init__(self, color):
+        self.color = color
+
+    def get_move(self, board):
+        valid_moves = self.get_all_valid_moves(board)
+        return random.choice(valid_moves) if valid_moves else None
+
+    def get_all_valid_moves(self, board):
+        valid_moves = []
+        for from_row in range(8):
+            for from_col in range(8):
+                piece = board.board[from_row][from_col]
+                if piece and piece.color == self.color:
+                    for to_row in range(8):
+                        for to_col in range(8):
+                            # Ensure the target square is either empty or occupied by an opponent's piece
+                            target_piece = board.board[to_row][to_col]
+                            if board.is_valid_move((from_row, from_col), (to_row, to_col)):
+                                if not target_piece or target_piece.color != self.color:
+                                    valid_moves.append(((from_row, from_col), (to_row, to_col)))
+        return valid_moves
+
+def play_game_with_ai():
     board = ChessBoard()
+    ai = RandomAI(Color.BLACK)
+
     while True:
         board.display()
-        print(f"Current player: {board.current_player.name}")
-        from_square = input("Enter the square to move from (e.g., e2): ")
-        to_square = input("Enter the square to move to (e.g., e4): ")
-        
-        from_col, from_row = ord(from_square[0]) - ord('a'), int(from_square[1]) - 1
-        to_col, to_row = ord(to_square[0]) - ord('a'), int(to_square[1]) - 1
+        if board.current_player == Color.WHITE:
+            print("Your turn (White)")
+            from_square = input("Enter the square to move from (e.g., e2): ")
+            to_square = input("Enter the square to move to (e.g., e4): ")
+            
+            from_col, from_row = ord(from_square[0]) - ord('a'), int(from_square[1]) - 1
+            to_col, to_row = ord(to_square[0]) - ord('a'), int(to_square[1]) - 1
 
-        if board.make_move((from_row, from_col), (to_row, to_col)):
-            print("Move successful")
+            if board.make_move((from_row, from_col), (to_row, to_col)):
+                print("Move successful")
+            else:
+                print("Invalid move")
+                continue
         else:
-            print("Invalid move")
-
-
-def play_game_jupyter():
-    board = ChessBoard()
-    game_active = True
-    
-    while game_active:
-        board.display()
-        print(f"Current player: {board.current_player.name}")
-        
-        from_square = input("Enter the square to move from (e.g., e2): ")
-        to_square = input("Enter the square to move to (e.g., e4): ")
-        
-        from_col, from_row = ord(from_square[0]) - ord('a'), int(from_square[1]) - 1
-        to_col, to_row = ord(to_square[0]) - ord('a'), int(to_square[1]) - 1
-        
-        if board.make_move((from_row, from_col), (to_row, to_col)):
-            print("Move successful")
-        else:
-            print("Invalid move")
-        
-        # You might want to add some condition to break the loop, for example, checking for a checkmate or stalemate
-        # or by limiting the number of moves:
-        continue_game = input("Continue playing? (yes/no): ")
-        if continue_game.lower() != "yes":
-            game_active = False
-
+            print("AI's turn (Black)")
+            ai_move = ai.get_move(board)
+            if ai_move:
+                from_square, to_square = ai_move
+                board.make_move(from_square, to_square)
+                print(f"AI moved from {chr(from_square[1] + ord('a'))}{from_square[0] + 1} to {chr(to_square[1] + ord('a'))}{to_square[0] + 1}")
+            else:
+                print("AI has no valid moves")
+                break
 
 if __name__ == "__main__":
-    board = ChessBoard()
-    board.display()
+    play_game_with_ai()

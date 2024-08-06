@@ -270,17 +270,41 @@ class MinimaxAI:
             PieceType.KING: 0  # The King is invaluable for the game's sake
         }
 
+        # Positional tables (simplified versions)
+        self.pawn_table = [
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [5, 5, 5, 5, 5, 5, 5, 5],
+            [1, 1, 2, 3, 3, 2, 1, 1],
+            [0.5, 0.5, 1, 2.5, 2.5, 1, 0.5, 0.5],
+            [0, 0, 0, 2, 2, 0, 0, 0],
+            [0.5, -0.5, -1, 0, 0, -1, -0.5, 0.5],
+            [0.5, 1, 1, -2, -2, 1, 1, 0.5],
+            [0, 0, 0, 0, 0, 0, 0, 0]
+        ]
+        # Add tables for other pieces similarly...
+
     def evaluate_board(self, board):
         score = 0
-        for row in board.board:
-            for piece in row:
+        for row in range(8):
+            for col in range(8):
+                piece = board.board[row][col]
                 if piece:
                     value = self.piece_values[piece.piece_type]
+                    positional_value = self.evaluate_positional_value(piece, row, col)
                     if piece.color == self.color:
-                        score += value
+                        score += value + positional_value
                     else:
-                        score -= value
+                        score -= value + positional_value
         return score
+
+    def evaluate_positional_value(self, piece, row, col):
+        if piece.piece_type == PieceType.PAWN:
+            if piece.color == Color.WHITE:
+                return self.pawn_table[row][col]
+            else:
+                return self.pawn_table[7 - row][col]
+        # Implement positional tables for other pieces (knight, bishop, etc.) here
+        return 0
 
     def alpha_beta(self, board, depth, alpha, beta, maximizing_player):
         if depth == 0:
@@ -369,7 +393,7 @@ class MinimaxAI:
 def play_game_with_ai():
     board = ChessBoard()
     # ai = MaterialCountAI(Color.BLACK)
-    ai = MinimaxAI(Color.BLACK, depth=2)
+    ai = MinimaxAI(Color.BLACK, depth=1)
 
     while True:
         board.display()

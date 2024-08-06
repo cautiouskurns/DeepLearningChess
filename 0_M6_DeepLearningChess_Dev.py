@@ -1,6 +1,9 @@
 from enum import Enum, auto
 import random
 from IPython.display import clear_output
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 class PieceType(Enum):
     PAWN = auto()
@@ -267,21 +270,8 @@ class MinimaxAI:
             PieceType.BISHOP: 3,
             PieceType.ROOK: 5,
             PieceType.QUEEN: 9,
-            PieceType.KING: 0  # The King is invaluable for the game's sake
+            PieceType.KING: 100  # Give the King a large value to avoid checkmate scenarios
         }
-
-        # Positional tables (simplified versions)
-        self.pawn_table = [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [5, 5, 5, 5, 5, 5, 5, 5],
-            [1, 1, 2, 3, 3, 2, 1, 1],
-            [0.5, 0.5, 1, 2.5, 2.5, 1, 0.5, 0.5],
-            [0, 0, 0, 2, 2, 0, 0, 0],
-            [0.5, -0.5, -1, 0, 0, -1, -0.5, 0.5],
-            [0.5, 1, 1, -2, -2, 1, 1, 0.5],
-            [0, 0, 0, 0, 0, 0, 0, 0]
-        ]
-        # Add tables for other pieces similarly...
 
     def evaluate_board(self, board):
         score = 0
@@ -290,21 +280,11 @@ class MinimaxAI:
                 piece = board.board[row][col]
                 if piece:
                     value = self.piece_values[piece.piece_type]
-                    positional_value = self.evaluate_positional_value(piece, row, col)
                     if piece.color == self.color:
-                        score += value + positional_value
+                        score += value
                     else:
-                        score -= value + positional_value
+                        score -= value
         return score
-
-    def evaluate_positional_value(self, piece, row, col):
-        if piece.piece_type == PieceType.PAWN:
-            if piece.color == Color.WHITE:
-                return self.pawn_table[row][col]
-            else:
-                return self.pawn_table[7 - row][col]
-        # Implement positional tables for other pieces (knight, bishop, etc.) here
-        return 0
 
     def alpha_beta(self, board, depth, alpha, beta, maximizing_player):
         if depth == 0:
@@ -364,6 +344,7 @@ class MinimaxAI:
     def make_hypothetical_move(self, board, move):
         board_copy = ChessBoard()
         board_copy.board = [row[:] for row in board.board]
+        board_copy.current_player = board.current_player
         from_square, to_square = move
         board_copy.make_move(from_square, to_square)
         return board_copy
@@ -389,11 +370,63 @@ class MinimaxAI:
 
 
 
+class ChessNN(nn.Module):
+    def __init__(self):
+        super(ChessNN, self).__init__()
+        self.fc1 = nn.Linear(64 * 12, 256)  # 12 channels for 6 piece types * 2 colors
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 1)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        x = torch.tanh(self.fc3(x))  # Output between -1 and 1
+        return x
+
+def board_to_tensor(board):
+    tensor = torch.zeros(1, 12, 8, 8)
+    piece_channel = {
+        (PieceType.PAWN, Color.WHITE): 0,
+        (PieceType.KNIGHT, Color.WHITE): 1,
+        (PieceType.BISHOP, Color.WHITE): 2,
+        (PieceType.ROOK, Color.WHITE): 3,
+        (PieceType.QUEEN, Color.WHITE): 4,
+        (PieceType.KING, Color.WHITE): 5,
+        (PieceType.PAWN, Color.BLACK): 6,
+        (PieceType.KNIGHT, Color.BLACK): 7,
+        (PieceType.BISHOP, Color.BLACK): 8,
+        (PieceType.ROOK, Color.BLACK): 9,
+        (PieceType.QUEEN, Color.BLACK): 10,
+        (PieceType.KING, Color.BLACK): 11
+    }
+    for row in range(8):
+        for col in range(8):
+            piece = board.board[row][col]
+            if piece:
+                channel = piece_channel[(piece.piece_type, piece.color)]
+                tensor[0, channel, row, col] = 1
+    return tensor.view(1, -1)
+
+class NeuralNetworkAI(MinimaxAI):
+    def __init__(self, color, depth, model_path=None):
+        super().__init__(color, depth)
+        self.nn_model = ChessNN()
+        if model_path:
+            self.nn_model.load_state_dict(torch.load(model_path))
+        self.nn_model.eval()
+
+    def evaluate_board(self, board):
+        board_tensor = board_to_tensor(board)
+        print(f"Board Tensor: {board_tensor}")  # Debugging the input tensor
+        with torch.no_grad():
+            score = self.nn_model(board_tensor)
+        print(f"NN Evaluation: {score.item()}")  # Debugging the NN output
+        return score.item()
+
 
 def play_game_with_ai():
     board = ChessBoard()
-    # ai = MaterialCountAI(Color.BLACK)
-    ai = MinimaxAI(Color.BLACK, depth=1)
+    ai = NeuralNetworkAI(Color.BLACK, depth=1)  # Replace depth and model_path as needed
 
     while True:
         board.display()

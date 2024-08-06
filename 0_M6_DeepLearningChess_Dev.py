@@ -267,7 +267,7 @@ class MinimaxAI:
             PieceType.BISHOP: 3,
             PieceType.ROOK: 5,
             PieceType.QUEEN: 9,
-            PieceType.KING: 0  # King is invaluable for the game's sake
+            PieceType.KING: 0  # The King is invaluable for the game's sake
         }
 
     def evaluate_board(self, board):
@@ -282,7 +282,7 @@ class MinimaxAI:
                         score -= value
         return score
 
-    def minimax(self, board, depth, maximizing_player):
+    def alpha_beta(self, board, depth, alpha, beta, maximizing_player):
         if depth == 0:
             return self.evaluate_board(board)
 
@@ -292,15 +292,21 @@ class MinimaxAI:
             max_eval = float('-inf')
             for move in valid_moves:
                 board_copy = self.make_hypothetical_move(board, move)
-                eval = self.minimax(board_copy, depth - 1, False)
+                eval = self.alpha_beta(board_copy, depth - 1, alpha, beta, False)
                 max_eval = max(max_eval, eval)
+                alpha = max(alpha, eval)
+                if beta <= alpha:
+                    break  # Beta cutoff
             return max_eval
         else:
             min_eval = float('inf')
             for move in valid_moves:
                 board_copy = self.make_hypothetical_move(board, move)
-                eval = self.minimax(board_copy, depth - 1, True)
+                eval = self.alpha_beta(board_copy, depth - 1, alpha, beta, True)
                 min_eval = min(min_eval, eval)
+                beta = min(beta, eval)
+                if beta <= alpha:
+                    break  # Alpha cutoff
             return min_eval
 
     def get_move(self, board):
@@ -308,9 +314,12 @@ class MinimaxAI:
         best_move = None
         best_score = float('-inf') if self.color == Color.WHITE else float('inf')
 
+        print("AI is considering the following moves:")
         for move in valid_moves:
             board_copy = self.make_hypothetical_move(board, move)
-            score = self.minimax(board_copy, self.depth - 1, self.color == Color.WHITE)
+            score = self.alpha_beta(board_copy, self.depth - 1, float('-inf'), float('inf'), self.color == Color.WHITE)
+
+            print(f"Move {move}: Evaluated score = {score}")
 
             if self.color == Color.WHITE:
                 if score > best_score:
@@ -320,6 +329,11 @@ class MinimaxAI:
                 if score < best_score:
                     best_score = score
                     best_move = move
+
+        if best_move:
+            print(f"AI selected move: {best_move} with score {best_score}")
+        else:
+            print("AI could not find a valid move")
 
         return best_move
 
@@ -339,16 +353,23 @@ class MinimaxAI:
                     for to_row in range(8):
                         for to_col in range(8):
                             if board.is_valid_move((from_row, from_col), (to_row, to_col)):
-                                valid_moves.append(((from_row, from_col), (to_row, to_col)))
-                                print(f"Valid move found: {from_row, from_col} to {to_row, to_col}")  # Debug line
+                                # Ensure the move doesn't result in a piece moving to a square occupied by its own side
+                                target_piece = board.board[to_row][to_col]
+                                if not target_piece or target_piece.color != self.color:
+                                    valid_moves.append(((from_row, from_col), (to_row, to_col)))
+                                    print(f"Valid move found: {from_row, from_col} to {to_row, to_col}")  # Debug line
 
+        if not valid_moves:
+            print("No valid moves found.")
         return valid_moves
+
 
 
 
 def play_game_with_ai():
     board = ChessBoard()
-    ai = MaterialCountAI(Color.BLACK)
+    # ai = MaterialCountAI(Color.BLACK)
+    ai = MinimaxAI(Color.BLACK, depth=2)
 
     while True:
         board.display()

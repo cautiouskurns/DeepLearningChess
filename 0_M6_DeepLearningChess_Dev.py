@@ -192,9 +192,74 @@ class RandomAI:
                                     valid_moves.append(((from_row, from_col), (to_row, to_col)))
         return valid_moves
 
+
+class MaterialCountAI:
+    def __init__(self, color):
+        self.color = color
+        self.piece_values = {
+            PieceType.PAWN: 1,
+            PieceType.KNIGHT: 3,
+            PieceType.BISHOP: 3,
+            PieceType.ROOK: 5,
+            PieceType.QUEEN: 9,
+            PieceType.KING: 0  # King is invaluable for the game's sake
+        }
+
+    def evaluate_board(self, board):
+        score = 0
+        for row in board.board:
+            for piece in row:
+                if piece:
+                    value = self.piece_values[piece.piece_type]
+                    if piece.color == self.color:
+                        score += value
+                    else:
+                        score -= value
+        return score
+
+    def get_move(self, board):
+        valid_moves = self.get_all_valid_moves(board)
+        best_move = None
+        best_score = float('-inf') if self.color == Color.WHITE else float('inf')
+
+        for move in valid_moves:
+            board_copy = self.make_hypothetical_move(board, move)
+            score = self.evaluate_board(board_copy)
+
+            if self.color == Color.WHITE:
+                if score > best_score:
+                    best_score = score
+                    best_move = move
+            else:
+                if score < best_score:
+                    best_score = score
+                    best_move = move
+
+        return best_move
+
+    def make_hypothetical_move(self, board, move):
+        board_copy = ChessBoard()
+        board_copy.board = [row[:] for row in board.board]
+        from_square, to_square = move
+        board_copy.make_move(from_square, to_square)
+        return board_copy
+
+    def get_all_valid_moves(self, board):
+        valid_moves = []
+        for from_row in range(8):
+            for from_col in range(8):
+                piece = board.board[from_row][from_col]
+                if piece and piece.color == self.color:
+                    for to_row in range(8):
+                        for to_col in range(8):
+                            if board.is_valid_move((from_row, from_col), (to_row, to_col)):
+                                valid_moves.append(((from_row, from_col), (to_row, to_col)))
+        return valid_moves
+
+
 def play_game_with_ai():
     board = ChessBoard()
-    ai = RandomAI(Color.BLACK)
+    ai = MaterialCountAI(Color.BLACK)
 
     while True:
         board.display()

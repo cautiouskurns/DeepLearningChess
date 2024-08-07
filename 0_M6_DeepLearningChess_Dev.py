@@ -1,3 +1,173 @@
+import chess
+import chess.pgn
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import io
+import matplotlib.pyplot as plt
+from IPython.display import clear_output
+from tqdm import tqdm
+import random
+
+def board_to_tensor(board):
+    tensor = torch.zeros(12, 8, 8)
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece:
+            color = 0 if piece.color == chess.WHITE else 6
+            piece_type = piece.piece_type - 1
+            row, col = divmod(square, 8)
+            tensor[color + piece_type, row, col] = 1
+    return tensor
+
+def move_to_index(move):
+    return move.from_square * 64 + move.to_square
+
+class ChessDataset(Dataset):
+    def __init__(self, pgn_file, sample_size=None, max_games=None):
+        self.positions = []
+        self.moves = []
+        
+        encodings = ['utf-8', 'iso-8859-1', 'windows-1252']
+        
+        for encoding in encodings:
+            try:
+                with open(pgn_file, encoding=encoding) as f:
+                    game_count = 0
+                    while True:
+                        game = chess.pgn.read_game(f)
+                        if game is None or (max_games and game_count >= max_games):
+                            break
+                        board = game.board()
+                        for move in game.mainline_moves():
+                            self.positions.append(board_to_tensor(board))
+                            self.moves.append(move_to_index(move))
+                            board.push(move)
+                        game_count += 1
+                print(f"Successfully read {game_count} games from the PGN file with {encoding} encoding.")
+                break  # If successful, exit the loop
+            except UnicodeDecodeError:
+                print(f"Failed to decode with {encoding}, trying next encoding...")
+            except Exception as e:
+                print(f"An error occurred: {str(e)}")
+                raise
+        else:
+            raise ValueError("Unable to read the PGN file with any of the attempted encodings.")
+
+        if sample_size and sample_size < len(self.positions):
+            indices = random.sample(range(len(self.positions)), sample_size)
+            self.positions = [self.positions[i] for i in indices]
+            self.moves = [self.moves[i] for i in indices]
+            print(f"Sampled {sample_size} positions from the dataset.")
+
+    def __len__(self):
+        return len(self.positions)
+
+    def __getitem__(self, idx):
+        return self.positions[idx], self.moves[idx]
+
+class ChessNN(nn.Module):
+    def __init__(self):
+        super(ChessNN, self).__init__()
+        self.conv1 = nn.Conv2d(12, 64, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.fc1 = nn.Linear(256 * 8 * 8, 1024)
+        self.fc2 = nn.Linear(1024, 4096)  # 64 * 64 possible moves
+
+    def forward(self, x):
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = torch.relu(self.conv3(x))
+        x = x.view(-1, 256 * 8 * 8)
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+def plot_loss(losses):
+    plt.figure(figsize=(10, 5))
+    plt.plot(losses)
+    plt.title('Training Loss over Time')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.show()
+
+def visualize_board_evaluation(model, board):
+    model.eval()
+    board_tensor = board_to_tensor(board).unsqueeze(0)
+    with torch.no_grad():
+        move_probabilities = model(board_tensor)
+    
+    move_probs = move_probabilities.view(64, 64).cpu().numpy()
+    
+    plt.figure(figsize=(12, 8))
+    plt.imshow(move_probs, cmap='hot', interpolation='nearest')
+    plt.colorbar(label='Move Probability')
+    plt.title('Chess Board Move Evaluation')
+    plt.xlabel('To Square')
+    plt.ylabel('From Square')
+    plt.show()
+
+def train_model(model, train_loader, num_epochs, learning_rate):
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    
+    losses = []
+    example_board = chess.Board()  # An example board to visualize during training
+
+    for epoch in range(num_epochs):
+        model.train()
+        total_loss = 0
+        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
+        for positions, moves in progress_bar:
+            optimizer.zero_grad()
+            outputs = model(positions)
+            loss = criterion(outputs, moves)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            progress_bar.set_postfix({'loss': loss.item()})
+        
+        avg_loss = total_loss / len(train_loader)
+        losses.append(avg_loss)
+        
+        # Visualize progress
+        clear_output(wait=True)
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
+        plot_loss(losses)
+        visualize_board_evaluation(model, example_board)
+
+    return model, losses
+
+# Load your PGN file
+pgn_file = "Kasparov.pgn"
+
+# Create dataset and dataloader with sampling
+sample_size = 10000  # Adjust this number as needed
+max_games = 100  # Limit the number of games to read, adjust as needed
+dataset = ChessDataset(pgn_file, sample_size=sample_size, max_games=max_games)
+train_loader = DataLoader(dataset, batch_size=64, shuffle=True)
+
+# Initialize and train the model
+model = ChessNN()
+trained_model, training_losses = train_model(model, train_loader, num_epochs=10, learning_rate=0.001)
+
+# Final visualizations
+plot_loss(training_losses)
+visualize_board_evaluation(trained_model, chess.Board())
+
+# Save the trained model
+torch.save(trained_model.state_dict(), "trained_chess_model.pth")
+
+print("Model trained and saved as 'trained_chess_model.pth'")
+
+
+
+
+
+
 import random
 import json
 from IPython.display import display, HTML, Javascript, clear_output, SVG
@@ -62,26 +232,31 @@ class SimpleChessGame:
 class ChessNN(nn.Module):
     def __init__(self):
         super(ChessNN, self).__init__()
-        self.fc1 = nn.Linear(64 * 12, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 1)
+        self.conv1 = nn.Conv2d(12, 64, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.fc1 = nn.Linear(256 * 8 * 8, 1024)
+        self.fc2 = nn.Linear(1024, 4096)  # 64 * 64 possible moves
 
     def forward(self, x):
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = torch.relu(self.conv3(x))
+        x = x.view(-1, 256 * 8 * 8)
         x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        x = torch.tanh(self.fc3(x))
+        x = self.fc2(x)
         return x
 
 def board_to_tensor(board):
-    tensor = torch.zeros(1, 12, 8, 8)
+    tensor = torch.zeros(12, 8, 8)
     for square in chess.SQUARES:
         piece = board.piece_at(square)
         if piece:
             color = 0 if piece.color == chess.WHITE else 6
             piece_type = piece.piece_type - 1
             row, col = divmod(square, 8)
-            tensor[0, color + piece_type, row, col] = 1
-    return tensor.view(1, -1)
+            tensor[color + piece_type, row, col] = 1
+    return tensor
 
 
 class MaterialCountAI:
@@ -162,7 +337,7 @@ class MinimaxAI:
         return best_move, f"Minimax (depth {self.depth}): {best_score}"
 
 class EnsembleAI:
-    def __init__(self, model_path=None):
+    def __init__(self, model_path="trained_chess_model.pth"):
         self.neural_net_ai = NeuralNetworkAI(model_path)
         self.material_count_ai = MaterialCountAI()
         self.minimax_ai = MinimaxAI(depth=3)
@@ -185,45 +360,27 @@ class EnsembleAI:
 
 
 class NeuralNetworkAI:
-    def __init__(self, model_path=None):
+    def __init__(self, model_path="trained_chess_model.pth"):
         self.nn_model = ChessNN()
-        if model_path:
-            self.nn_model.load_state_dict(torch.load(model_path))
+        self.nn_model.load_state_dict(torch.load(model_path))
         self.nn_model.eval()
 
     def get_move(self, board):
-        best_move = None
-        best_score = float('-inf') if board.turn == chess.WHITE else float('inf')
-        move_evaluations = []
-
-        for move in board.legal_moves:
-            board_copy = board.copy()
-            board_copy.push(move)
-            board_tensor = board_to_tensor(board_copy)
-            with torch.no_grad():
-                score = self.nn_model(board_tensor).item()
-
-            move_evaluations.append((move, score))
-
-            if board.turn == chess.WHITE:
-                if score > best_score:
-                    best_score = score
-                    best_move = move
-            else:
-                if score < best_score:
-                    best_score = score
-                    best_move = move
-
-        # Sort moves by score
-        move_evaluations.sort(key=lambda x: x[1], reverse=(board.turn == chess.WHITE))
-
-        reasoning = "AI's move analysis:\n"
-        for i, (move, score) in enumerate(move_evaluations[:5]):  # Show top 5 moves
-            reasoning += f"{i+1}. Move {move}: Evaluation = {score:.4f}\n"
-
-        reasoning += f"\nSelected move: {best_move} with score {best_score:.4f}"
-
-        return best_move, reasoning
+        board_tensor = board_to_tensor(board).unsqueeze(0)
+        
+        with torch.no_grad():
+            move_probabilities = self.nn_model(board_tensor)
+        
+        move_index = torch.argmax(move_probabilities).item()
+        from_square = move_index // 64
+        to_square = move_index % 64
+        move = chess.Move(from_square, to_square)
+        
+        if move in board.legal_moves:
+            return move, f"Neural Network evaluation: {move_probabilities.max().item():.4f}"
+        else:
+            # Fallback to a random legal move if the NN suggests an illegal move
+            return random.choice(list(board.legal_moves)), "Fallback to random move"
 
 # Main execution
 if __name__ == "__main__":

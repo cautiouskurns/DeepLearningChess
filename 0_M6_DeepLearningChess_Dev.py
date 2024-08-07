@@ -17,7 +17,9 @@ class SimpleChessGame:
         self.instructions = widgets.HTML(value="<b>Instructions:</b> Enter moves in algebraic notation (e.g., 'e2e4' or 'Nf3'). Click 'Make Move' or press Enter to submit.")
         self.output = widgets.Output()
         self.layout = widgets.VBox([self.instructions, self.move_input, self.move_button, self.output])
-        self.ai = NeuralNetworkAI()
+        # self.ai = NeuralNetworkAI()
+        self.ai = EnsembleAI()  # Use EnsembleAI instead of just NeuralNetworkAI
+
 
     def display_board(self):
         with self.output:
@@ -80,6 +82,107 @@ def board_to_tensor(board):
             row, col = divmod(square, 8)
             tensor[0, color + piece_type, row, col] = 1
     return tensor.view(1, -1)
+
+
+class MaterialCountAI:
+    piece_values = {
+        chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3,
+        chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0
+    }
+
+    def evaluate_board(self, board):
+        score = 0
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece:
+                value = self.piece_values[piece.piece_type]
+                score += value if piece.color == chess.WHITE else -value
+        return score
+
+    def get_move(self, board):
+        best_move = None
+        best_score = float('-inf') if board.turn == chess.WHITE else float('inf')
+        for move in board.legal_moves:
+            board_copy = board.copy()
+            board_copy.push(move)
+            score = self.evaluate_board(board_copy)
+            if board.turn == chess.WHITE:
+                if score > best_score:
+                    best_score, best_move = score, move
+            else:
+                if score < best_score:
+                    best_score, best_move = score, move
+        return best_move, f"Material Count: {best_score}"
+
+class MinimaxAI:
+    def __init__(self, depth):
+        self.depth = depth
+        self.material_count_ai = MaterialCountAI()
+
+    def alpha_beta(self, board, depth, alpha, beta, maximizing_player):
+        if depth == 0 or board.is_game_over():
+            return self.material_count_ai.evaluate_board(board)
+
+        if maximizing_player:
+            max_eval = float('-inf')
+            for move in board.legal_moves:
+                board.push(move)
+                eval = self.alpha_beta(board, depth - 1, alpha, beta, False)
+                board.pop()
+                max_eval = max(max_eval, eval)
+                alpha = max(alpha, eval)
+                if beta <= alpha:
+                    break
+            return max_eval
+        else:
+            min_eval = float('inf')
+            for move in board.legal_moves:
+                board.push(move)
+                eval = self.alpha_beta(board, depth - 1, alpha, beta, True)
+                board.pop()
+                min_eval = min(min_eval, eval)
+                beta = min(beta, eval)
+                if beta <= alpha:
+                    break
+            return min_eval
+
+    def get_move(self, board):
+        best_move = None
+        best_score = float('-inf') if board.turn == chess.WHITE else float('inf')
+        for move in board.legal_moves:
+            board.push(move)
+            score = self.alpha_beta(board, self.depth - 1, float('-inf'), float('inf'), board.turn != chess.WHITE)
+            board.pop()
+            if board.turn == chess.WHITE:
+                if score > best_score:
+                    best_score, best_move = score, move
+            else:
+                if score < best_score:
+                    best_score, best_move = score, move
+        return best_move, f"Minimax (depth {self.depth}): {best_score}"
+
+class EnsembleAI:
+    def __init__(self, model_path=None):
+        self.neural_net_ai = NeuralNetworkAI(model_path)
+        self.material_count_ai = MaterialCountAI()
+        self.minimax_ai = MinimaxAI(depth=3)
+
+    def get_move(self, board):
+        nn_move, nn_reasoning = self.neural_net_ai.get_move(board)
+        mc_move, mc_reasoning = self.material_count_ai.get_move(board)
+        mm_move, mm_reasoning = self.minimax_ai.get_move(board)
+
+        # Simple voting system
+        moves = [nn_move, mc_move, mm_move]
+        selected_move = max(set(moves), key=moves.count)
+
+        reasoning = f"Neural Network: {nn_reasoning}\n"
+        reasoning += f"Material Count: {mc_reasoning}\n"
+        reasoning += f"Minimax: {mm_reasoning}\n"
+        reasoning += f"Selected move: {selected_move} (by majority vote)"
+
+        return selected_move, reasoning
+
 
 class NeuralNetworkAI:
     def __init__(self, model_path=None):

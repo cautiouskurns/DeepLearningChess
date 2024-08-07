@@ -1,159 +1,61 @@
 import random
 import json
-from IPython.display import display, HTML, Javascript, clear_output
+from IPython.display import display, HTML, Javascript, clear_output, SVG
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import chess
+import chess.svg
+import ipywidgets as widgets
 
-# Remove these classes as they're no longer needed
-# class PieceType(Enum):
-# class Color(Enum):
-# class Piece:
-
-class ChessGame:
+class SimpleChessGame:
     def __init__(self):
         self.board = chess.Board()
+        self.move_input = widgets.Text(description="Move:")
+        self.move_button = widgets.Button(description="Make Move")
+        self.move_button.on_click(self.make_move)
+        self.instructions = widgets.HTML(value="<b>Instructions:</b> Enter moves in algebraic notation (e.g., 'e2e4' or 'Nf3'). Click 'Make Move' or press Enter to submit.")
+        self.output = widgets.Output()
+        self.layout = widgets.VBox([self.instructions, self.move_input, self.move_button, self.output])
+        self.ai = NeuralNetworkAI()
 
-    def display(self):
-        print(self.board)
+    def display_board(self):
+        with self.output:
+            clear_output(wait=True)
+            display(SVG(chess.svg.board(board=self.board, size=600)))  # Changed size from default (400) to 300
 
-    def make_move(self, move):
+    def make_move(self, b):
+        move = self.move_input.value
         try:
             self.board.push_san(move)
-            return True
+            self.move_input.value = ''
+            self.display_board()
+            with self.output:
+                print(f"Your move: {move}")
+                
+            # AI's turn
+            ai_move, reasoning = self.ai.get_move(self.board)
+            if ai_move:
+                self.board.push(ai_move)
+                self.display_board()
+                with self.output:
+                    print(reasoning)
+                    print(f"AI moved: {ai_move}")
+            else:
+                with self.output:
+                    print("AI has no valid moves")
+
+            if self.board.is_game_over():
+                with self.output:
+                    print("Game over")
+                    print(f"Result: {self.board.result()}")
         except ValueError:
-            return False
+            with self.output:
+                print("Invalid move. Please try again.")
 
-    def is_game_over(self):
-        return self.board.is_game_over()
-
-    def display_js_board(self):
-        """Display the chessboard using chessboard.js"""
-        js_code = f"""
-        var board = Chessboard('board', '{self.board.fen()}');
-        """
-        display(Javascript(js_code))
-
-class RandomAI:
-    def get_move(self, board):
-        legal_moves = list(board.legal_moves)
-        return random.choice(legal_moves) if legal_moves else None
-
-class MaterialCountAI:
-    piece_values = {
-        chess.PAWN: 1,
-        chess.KNIGHT: 3,
-        chess.BISHOP: 3,
-        chess.ROOK: 5,
-        chess.QUEEN: 9,
-        chess.KING: 0
-    }
-
-    def evaluate_board(self, board):
-        score = 0
-        for square in chess.SQUARES:
-            piece = board.piece_at(square)
-            if piece:
-                value = self.piece_values[piece.piece_type]
-                score += value if piece.color == chess.WHITE else -value
-        return score
-
-    def get_move(self, board):
-        best_move = None
-        best_score = float('-inf') if board.turn == chess.WHITE else float('inf')
-
-        for move in board.legal_moves:
-            board_copy = board.copy()
-            board_copy.push(move)
-            score = self.evaluate_board(board_copy)
-
-            if board.turn == chess.WHITE:
-                if score > best_score:
-                    best_score = score
-                    best_move = move
-            else:
-                if score < best_score:
-                    best_score = score
-                    best_move = move
-
-        return best_move
-
-class MinimaxAI:
-    def __init__(self, depth):
-        self.depth = depth
-        self.piece_values = {
-            chess.PAWN: 1,
-            chess.KNIGHT: 3,
-            chess.BISHOP: 3,
-            chess.ROOK: 5,
-            chess.QUEEN: 9,
-            chess.KING: 100
-        }
-
-    def evaluate_board(self, board):
-        score = 0
-        for square in chess.SQUARES:
-            piece = board.piece_at(square)
-            if piece:
-                value = self.piece_values[piece.piece_type]
-                score += value if piece.color == chess.WHITE else -value
-        return score
-
-    def alpha_beta(self, board, depth, alpha, beta, maximizing_player):
-        if depth == 0 or board.is_game_over():
-            return self.evaluate_board(board)
-
-        if maximizing_player:
-            max_eval = float('-inf')
-            for move in board.legal_moves:
-                board.push(move)
-                eval = self.alpha_beta(board, depth - 1, alpha, beta, False)
-                board.pop()
-                max_eval = max(max_eval, eval)
-                alpha = max(alpha, eval)
-                if beta <= alpha:
-                    break
-            return max_eval
-        else:
-            min_eval = float('inf')
-            for move in board.legal_moves:
-                board.push(move)
-                eval = self.alpha_beta(board, depth - 1, alpha, beta, True)
-                board.pop()
-                min_eval = min(min_eval, eval)
-                beta = min(beta, eval)
-                if beta <= alpha:
-                    break
-            return min_eval
-
-    def get_move(self, board):
-        best_move = None
-        best_score = float('-inf') if board.turn == chess.WHITE else float('inf')
-
-        print("AI is considering the following moves:")
-        for move in board.legal_moves:
-            board.push(move)
-            score = self.alpha_beta(board, self.depth - 1, float('-inf'), float('inf'), board.turn != chess.WHITE)
-            board.pop()
-
-            print(f"Move {move}: Evaluated score = {score}")
-
-            if board.turn == chess.WHITE:
-                if score > best_score:
-                    best_score = score
-                    best_move = move
-            else:
-                if score < best_score:
-                    best_score = score
-                    best_move = move
-
-        if best_move:
-            print(f"AI selected move: {best_move} with score {best_score}")
-        else:
-            print("AI could not find a valid move")
-
-        return best_move
+    def display(self):
+        display(self.layout)
+        self.display_board()
 
 class ChessNN(nn.Module):
     def __init__(self):
@@ -189,6 +91,7 @@ class NeuralNetworkAI:
     def get_move(self, board):
         best_move = None
         best_score = float('-inf') if board.turn == chess.WHITE else float('inf')
+        move_evaluations = []
 
         for move in board.legal_moves:
             board_copy = board.copy()
@@ -197,7 +100,7 @@ class NeuralNetworkAI:
             with torch.no_grad():
                 score = self.nn_model(board_tensor).item()
 
-            print(f"Move {move}: NN Evaluation = {score}")
+            move_evaluations.append((move, score))
 
             if board.turn == chess.WHITE:
                 if score > best_score:
@@ -208,38 +111,18 @@ class NeuralNetworkAI:
                     best_score = score
                     best_move = move
 
-        if best_move:
-            print(f"AI selected move: {best_move} with score {best_score}")
-        else:
-            print("AI could not find a valid move")
+        # Sort moves by score
+        move_evaluations.sort(key=lambda x: x[1], reverse=(board.turn == chess.WHITE))
 
-        return best_move
+        reasoning = "AI's move analysis:\n"
+        for i, (move, score) in enumerate(move_evaluations[:5]):  # Show top 5 moves
+            reasoning += f"{i+1}. Move {move}: Evaluation = {score:.4f}\n"
 
-def play_game_with_ai():
-    game = ChessGame()
-    ai = NeuralNetworkAI()  # You can change this to any other AI class
+        reasoning += f"\nSelected move: {best_move} with score {best_score:.4f}"
 
-    while not game.is_game_over():
-        game.display()
-        if game.board.turn == chess.WHITE:
-            move = input("Enter your move (e.g., e2e4): ")
-            if game.make_move(move):
-                print("Move successful")
-            else:
-                print("Invalid move")
-                continue
-        else:
-            print("AI's turn (Black)")
-            ai_move = ai.get_move(game.board)
-            if ai_move:
-                game.board.push(ai_move)
-                print(f"AI moved: {ai_move}")
-            else:
-                print("AI has no valid moves")
-                break
+        return best_move, reasoning
 
-    print("Game over")
-    print(f"Result: {game.board.result()}")
-
+# Main execution
 if __name__ == "__main__":
-    play_game_with_ai()
+    game = SimpleChessGame()
+    game.display()
